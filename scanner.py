@@ -82,20 +82,42 @@ def clean_text(ocr_text):
     
     return cleaned
 
+def filter_info(ocr_text):
+    if not ocr_text:
+        return None
+    
+    # Look for keywords indicating "what"
+    what_keywords = ['meeting', 'appointment', 'event', 'call', 'discussion', 'session', 'gathering', 'conference', 'webinar', 'workshop', 'gbm']
+    target_pattern = r'((?:' + '|'.join(what_keywords) + r')\s*([A-Za-z\s]+\s*(?:Hall|Room|Building)?\s*\d*))'
+    full_pattern = r'(?:' + '|'.join(what_keywords) + r')\s*([A-Za-z0-9\s,.-]+)'
+    try:
+        for match in re.finditer(full_pattern, ocr_text, flags=re.IGNORECASE):
+            info = match.group(0).strip()
+                
+            # Get Context
+            match_start, match_end = match.span()
+            context_start = max(0, match_start - context_window_left)
+            context_end = min(len(ocr_text), match_end + context_window_right)
+            context = ocr_text[context_start:context_end].strip()
+            return [info, context]
+    except Exception as e:
+        print(f"Error finding info: {e}")
+        return []
+
 # Filter and find date patterns in the cleaned text using regex and dateparser
 def filter_dates(ocr_text):
     if not ocr_text:
         return
-        
-    # Find event details
-    date_pattern = r"\d{2}/\d{2}/\d{2,4}"
+
+    cleaned = re.sub(r'#\d+\s*', '', ocr_text)  # Remove hashtags followed by numbers to avoid confusion with dates
+    cleaned = re.sub(r'\s*@\s*', ' ', cleaned)  # Remove standalone @ symbols to avoid confusion with time formats
+
     found_dates = []
     try:
         # Find dates in MM/DD/YYYY, MM/DD/YY, and natural language formats
-        # found_dates = re.findall(date_pattern, ocr_text)
-        # found_dates += [search_dates(ocr_text, settings={'PREFER_DATES_FROM': 'future'})]
-        found_dates = search_dates(ocr_text, settings={'PREFER_DATES_FROM': 'future'})
-        return found_dates
+        found_dates = search_dates(cleaned, settings={'PREFER_DATES_FROM': 'future'})
+        parsed_date = dateparser.parse(found_dates[0][0])
+        return parsed_date
     except Exception as e:
         print(f"Error finding dates: {e}")
         return []
@@ -106,12 +128,13 @@ def filter_location(ocr_text):
     
     # Look for keywords indicating location
     location_keywords = ['at', 'in', 'on', 'location', 'venue', 'place', 'hall', 'room', '@']
-    pattern = r'(?:' + '|'.join(location_keywords) + r')\b\s+([A-Z][a-zA-Z0-9\s,.-]+)'
+    pattern = r'(?:' + '|'.join(location_keywords) + r')\s*([A-Za-z]+\s*(?:Hall|Room|Building)?\s*\d*)'
 
     try:
         found_locations = re.findall(pattern, ocr_text, flags=re.IGNORECASE)
         # Clean location strings
         cleaned_locations = [loc.strip() for loc in found_locations if loc.strip()]
+        return cleaned_locations
     except Exception as e:
         print(f"Error finding locations: {e}")
         return []
@@ -123,19 +146,24 @@ if __name__ == '__main__':
     print("-" * 50)
     print(full_text)
     print("-" * 50)
+    # Handle info
+    info = filter_info(full_text)
+    if info:
+        print(f"- {info[1]}")
+    else:
+        print("No event info found.")
+
     # Handle dates
-    dates = filter_dates(full_text)
-    if dates:
-        for date, date_type in dates:
-            print(f"- {date}")
+    date = filter_dates(full_text)
+    if date:
+        print(f"- {date}")
     else:
         print("No dates found.")
 
     # Handle locations
-    locations = filter_location(full_text)
-    if locations:
-        for location in locations:
-            print(f"- {location}")
+    location = filter_location(full_text)
+    if location:
+        print(f"- {location[0]}")
     else:
         print("No locations found.")
     
